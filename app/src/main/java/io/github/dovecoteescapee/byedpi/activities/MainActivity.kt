@@ -14,8 +14,37 @@ import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.widget.Toast
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import io.github.dovecoteescapee.byedpi.R
@@ -27,9 +56,9 @@ import io.github.dovecoteescapee.byedpi.data.STARTED_BROADCAST
 import io.github.dovecoteescapee.byedpi.data.STOPPED_BROADCAST
 import io.github.dovecoteescapee.byedpi.data.Sender
 import io.github.dovecoteescapee.byedpi.fragments.SettingsFragment
-import io.github.dovecoteescapee.byedpi.databinding.ActivityMainBinding
 import io.github.dovecoteescapee.byedpi.services.ServiceManager
 import io.github.dovecoteescapee.byedpi.services.appStatus
+import io.github.dovecoteescapee.byedpi.services.appStatusFlow
 import io.github.dovecoteescapee.byedpi.utility.getPreferences
 import io.github.dovecoteescapee.byedpi.utility.mode
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +66,7 @@ import kotlinx.coroutines.launch
 import java.io.IOException
 
 class MainActivity : AppCompatActivity() {
-    private lateinit var binding: ActivityMainBinding
+    // private lateinit var binding: ActivityMainBinding
 
     companion object {
         private val TAG: String = MainActivity::class.java.simpleName
@@ -60,7 +89,7 @@ class MainActivity : AppCompatActivity() {
                 ServiceManager.start(this, Mode.VPN)
             } else {
                 Toast.makeText(this, R.string.vpn_permission_denied, Toast.LENGTH_SHORT).show()
-                updateStatus()
+                // updateStatus()
             }
         }
 
@@ -110,8 +139,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             when (val action = intent.action) {
-                STARTED_BROADCAST,
-                STOPPED_BROADCAST -> updateStatus()
+                STARTED_BROADCAST -> {}
+                // STOPPED_BROADCAST -> updateStatus()
 
                 FAILED_BROADCAST -> {
                     Toast.makeText(
@@ -119,7 +148,7 @@ class MainActivity : AppCompatActivity() {
                         getString(R.string.failed_to_start, sender.name),
                         Toast.LENGTH_SHORT,
                     ).show()
-                    updateStatus()
+                    // updateStatus()
                 }
 
                 else -> Log.w(TAG, "Unknown action: $action")
@@ -127,11 +156,98 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        binding = ActivityMainBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        setContent {
+            enableEdgeToEdge()
+            MaterialTheme {
+                val context = LocalContext.current
+                val appsStatusFlow by appStatusFlow.collectAsState()
+                Scaffold(
+                    topBar = {
+                        TopAppBar(
+                            title = { Text(stringResource(R.string.app_name)) },
+                            actions = {
+                                IconButton(onClick = {
+                                    val (status, _) = appsStatusFlow
+                                    if (status == AppStatus.Halted) {
+                                        val intent = Intent(context, SettingsActivity::class.java)
+                                        startActivity(intent)
+                                    } else {
+                                        Toast.makeText(
+                                            context,
+                                            R.string.settings_unavailable,
+                                            Toast.LENGTH_SHORT
+                                        )
+                                            .show()
+                                    }
+                                }) {
+                                    Icon(Icons.Filled.Settings, contentDescription = null)
+                                }
+
+                                var isMenuShown by remember { mutableStateOf(false) }
+                                Box {
+                                    IconButton(onClick = {
+                                        isMenuShown = !isMenuShown
+                                    }) {
+                                        Icon(Icons.Outlined.MoreVert, contentDescription = null)
+                                    }
+                                    DropdownMenu(
+                                        expanded = isMenuShown,
+                                        onDismissRequest = { isMenuShown = false }) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.save_logs)) },
+                                            onClick = {
+                                                val intent =
+                                                    Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                                                        addCategory(Intent.CATEGORY_OPENABLE)
+                                                        type = "text/plain"
+                                                        putExtra(Intent.EXTRA_TITLE, "byedpi.log")
+                                                    }
+
+                                                logsRegister.launch(intent)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        )
+                    }
+                ) { paddingValues ->
+                    Column(
+                        modifier = Modifier
+                            .padding(paddingValues)
+                            .fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Button(onClick = {
+                            val (status, _) = appsStatusFlow
+                            when (status) {
+                                AppStatus.Halted -> start()
+                                AppStatus.Running -> stop()
+                            }
+                        }) {
+                            Text(
+                                when (appsStatusFlow.first) {
+                                    AppStatus.Halted -> stringResource(R.string.vpn_connect)
+                                    AppStatus.Running -> stringResource(R.string.vpn_disconnect)
+                                }
+                            )
+                        }
+                        Text(
+                            text = when (appsStatusFlow.first) {
+                                AppStatus.Halted -> stringResource(R.string.vpn_disconnected)
+                                AppStatus.Running -> stringResource(R.string.vpn_connected)
+                            },
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+            }
+        }
 
         val intentFilter = IntentFilter().apply {
             addAction(STARTED_BROADCAST)
@@ -146,13 +262,6 @@ class MainActivity : AppCompatActivity() {
             registerReceiver(receiver, intentFilter)
         }
 
-        binding.statusButton.setOnClickListener {
-            val (status, _) = appStatus
-            when (status) {
-                AppStatus.Halted -> start()
-                AppStatus.Running -> stop()
-            }
-        }
 
         val theme = getPreferences(this)
             .getString("app_theme", null)
@@ -168,11 +277,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        updateStatus()
-    }
-
     override fun onDestroy() {
         super.onDestroy()
         unregisterReceiver(receiver)
@@ -181,37 +285,6 @@ class MainActivity : AppCompatActivity() {
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
         menuInflater.inflate(R.menu.menu_main, menu)
         return true
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        val (status, _) = appStatus
-
-        return when (item.itemId) {
-            R.id.action_settings -> {
-                if (status == AppStatus.Halted) {
-                    val intent = Intent(this, SettingsActivity::class.java)
-                    startActivity(intent)
-                } else {
-                    Toast.makeText(this, R.string.settings_unavailable, Toast.LENGTH_SHORT)
-                        .show()
-                }
-                true
-            }
-
-            R.id.action_save_logs -> {
-                val intent =
-                    Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                        addCategory(Intent.CATEGORY_OPENABLE)
-                        type = "text/plain"
-                        putExtra(Intent.EXTRA_TITLE, "byedpi.log")
-                    }
-
-                logsRegister.launch(intent)
-                true
-            }
-
-            else -> super.onOptionsItemSelected(item)
-        }
     }
 
     private fun start() {
@@ -233,7 +306,7 @@ class MainActivity : AppCompatActivity() {
         ServiceManager.stop(this)
     }
 
-    private fun updateStatus() {
+    /*private fun updateStatus() {
         val (status, mode) = appStatus
 
         Log.i(TAG, "Updating status: $status, $mode")
@@ -274,5 +347,5 @@ class MainActivity : AppCompatActivity() {
                 binding.statusButton.isEnabled = true
             }
         }
-    }
+    }*/
 }

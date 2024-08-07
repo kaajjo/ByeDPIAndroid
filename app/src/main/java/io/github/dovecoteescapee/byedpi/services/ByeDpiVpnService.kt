@@ -28,6 +28,7 @@ import io.github.dovecoteescapee.byedpi.data.ServiceStatus
 import io.github.dovecoteescapee.byedpi.utility.createConnectionNotification
 import io.github.dovecoteescapee.byedpi.utility.getPreferences
 import io.github.dovecoteescapee.byedpi.utility.registerNotificationChannel
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -226,7 +227,8 @@ class ByeDpiVpnService : LifecycleVpnService() {
                 ServiceStatus.Disconnected,
                 ServiceStatus.Failed -> AppStatus.Halted
             },
-            Mode.VPN
+            Mode.VPN,
+            scope = CoroutineScope(Dispatchers.Main)
         )
 
         val intent = Intent(
