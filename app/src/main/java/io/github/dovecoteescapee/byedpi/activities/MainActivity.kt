@@ -11,13 +11,12 @@ import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.Menu
-import android.view.MenuItem
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -57,8 +56,8 @@ import io.github.dovecoteescapee.byedpi.data.STOPPED_BROADCAST
 import io.github.dovecoteescapee.byedpi.data.Sender
 import io.github.dovecoteescapee.byedpi.fragments.SettingsFragment
 import io.github.dovecoteescapee.byedpi.services.ServiceManager
-import io.github.dovecoteescapee.byedpi.services.appStatus
 import io.github.dovecoteescapee.byedpi.services.appStatusFlow
+import io.github.dovecoteescapee.byedpi.theme.ByeDpiTheme
 import io.github.dovecoteescapee.byedpi.utility.getPreferences
 import io.github.dovecoteescapee.byedpi.utility.mode
 import kotlinx.coroutines.Dispatchers
@@ -66,8 +65,6 @@ import kotlinx.coroutines.launch
 import java.io.IOException
 
 class MainActivity : AppCompatActivity() {
-    // private lateinit var binding: ActivityMainBinding
-
     companion object {
         private val TAG: String = MainActivity::class.java.simpleName
 
@@ -160,9 +157,22 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val intentFilter = IntentFilter().apply {
+            addAction(STARTED_BROADCAST)
+            addAction(STOPPED_BROADCAST)
+            addAction(FAILED_BROADCAST)
+        }
+
+        @SuppressLint("UnspecifiedRegisterReceiverFlag")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(receiver, intentFilter, RECEIVER_EXPORTED)
+        } else {
+            registerReceiver(receiver, intentFilter)
+        }
+
         setContent {
             enableEdgeToEdge()
-            MaterialTheme {
+            ByeDpiTheme {
                 val context = LocalContext.current
                 val appsStatusFlow by appStatusFlow.collectAsState()
                 Scaffold(
@@ -223,19 +233,23 @@ class MainActivity : AppCompatActivity() {
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Button(onClick = {
-                            val (status, _) = appsStatusFlow
-                            when (status) {
-                                AppStatus.Halted -> start()
-                                AppStatus.Running -> stop()
-                            }
-                        }) {
-                            Text(
-                                when (appsStatusFlow.first) {
-                                    AppStatus.Halted -> stringResource(R.string.vpn_connect)
-                                    AppStatus.Running -> stringResource(R.string.vpn_disconnect)
+                        Button(
+                            onClick = {
+                                val (status, _) = appsStatusFlow
+                                when (status) {
+                                    AppStatus.Halted -> start()
+                                    AppStatus.Running -> stop()
                                 }
-                            )
+                            }
+                        ) {
+                            AnimatedContent(appsStatusFlow.first, label = "connect_button_content") { targetState ->
+                                Text(
+                                    when (targetState) {
+                                        AppStatus.Halted -> stringResource(R.string.vpn_connect)
+                                        AppStatus.Running -> stringResource(R.string.vpn_disconnect)
+                                    }
+                                )
+                            }
                         }
                         Text(
                             text = when (appsStatusFlow.first) {
@@ -244,22 +258,17 @@ class MainActivity : AppCompatActivity() {
                             },
                             style = MaterialTheme.typography.labelSmall
                         )
+                        Text(
+                            text = with(getPreferences(context)) {
+                                (getString("byedpi_proxy_ip", null)
+                                    ?: "127.0.0.1") + ":" + (getString("byedpi_proxy_port", null)
+                                    ?: "1080")
+                            },
+                            style = MaterialTheme.typography.labelSmall
+                        )
                     }
                 }
             }
-        }
-
-        val intentFilter = IntentFilter().apply {
-            addAction(STARTED_BROADCAST)
-            addAction(STOPPED_BROADCAST)
-            addAction(FAILED_BROADCAST)
-        }
-
-        @SuppressLint("UnspecifiedRegisterReceiverFlag")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(receiver, intentFilter, RECEIVER_EXPORTED)
-        } else {
-            registerReceiver(receiver, intentFilter)
         }
 
 
@@ -282,11 +291,6 @@ class MainActivity : AppCompatActivity() {
         unregisterReceiver(receiver)
     }
 
-    override fun onCreateOptionsMenu(menu: Menu?): Boolean {
-        menuInflater.inflate(R.menu.menu_main, menu)
-        return true
-    }
-
     private fun start() {
         when (getPreferences(this).mode()) {
             Mode.VPN -> {
@@ -306,46 +310,4 @@ class MainActivity : AppCompatActivity() {
         ServiceManager.stop(this)
     }
 
-    /*private fun updateStatus() {
-        val (status, mode) = appStatus
-
-        Log.i(TAG, "Updating status: $status, $mode")
-
-        val preferences = getPreferences(this)
-        val proxyIp = preferences.getString("byedpi_proxy_ip", null) ?: "127.0.0.1"
-        val proxyPort = preferences.getString("byedpi_proxy_port", null) ?: "1080"
-        binding.proxyAddress.text = getString(R.string.proxy_address, proxyIp, proxyPort)
-
-        when (status) {
-            AppStatus.Halted -> {
-                when (preferences.mode()) {
-                    Mode.VPN -> {
-                        binding.statusText.setText(R.string.vpn_disconnected)
-                        binding.statusButton.setText(R.string.vpn_connect)
-                    }
-
-                    Mode.Proxy -> {
-                        binding.statusText.setText(R.string.proxy_down)
-                        binding.statusButton.setText(R.string.proxy_start)
-                    }
-                }
-                binding.statusButton.isEnabled = true
-            }
-
-            AppStatus.Running -> {
-                when (mode) {
-                    Mode.VPN -> {
-                        binding.statusText.setText(R.string.vpn_connected)
-                        binding.statusButton.setText(R.string.vpn_disconnect)
-                    }
-
-                    Mode.Proxy -> {
-                        binding.statusText.setText(R.string.proxy_up)
-                        binding.statusButton.setText(R.string.proxy_stop)
-                    }
-                }
-                binding.statusButton.isEnabled = true
-            }
-        }
-    }*/
 }
